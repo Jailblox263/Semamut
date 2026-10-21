@@ -8,7 +8,7 @@
 	},
 	"id": "jailblox263.autocorrect",
 	"name": "Auto Click Fix",
-	"version": "v0.1.0",
+	"version": "v0.2.0",
 	"developer": "Jailblox263",
 	"description": "Si un click sale mal, intenta corregirlo rebobinando y probando variantes. Si no hay solución, mueres.",
 	"dependencies": {
@@ -19,6 +19,47 @@
 			"type": "bool",
 			"name": "Activado",
 			"default": true
+		},
+		"practice-only": {
+			"type": "bool",
+			"name": "Solo en modo práctica",
+			"description": "Si está activo, el mod solo corrige en modo práctica.",
+			"default": false
+		},
+		"notify": {
+			"type": "bool",
+			"name": "Mostrar aviso al corregir",
+			"default": true
+		},
+		"window": {
+			"type": "int",
+			"name": "Ventana de rebobinado (pasos)",
+			"description": "Cuántos pasos de física hacia atrás se guardan. Más pasos = más lag.",
+			"default": 10,
+			"min": 4,
+			"max": 30
+		},
+		"max-shift": {
+			"type": "int",
+			"name": "Desplazamiento máximo de un click",
+			"default": 6,
+			"min": 1,
+			"max": 15
+		},
+		"extra-steps": {
+			"type": "int",
+			"name": "Pasos extra de seguridad",
+			"description": "Cuántos pasos más debe sobrevivir una corrección antes de aceptarla.",
+			"default": 15,
+			"min": 0,
+			"max": 60
+		},
+		"max-tries": {
+			"type": "int",
+			"name": "Máximo de variantes por muerte",
+			"default": 250,
+			"min": 20,
+			"max": 1000
 		}
 	}
 }
