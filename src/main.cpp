@@ -1,6 +1,7 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
+#include <Geode/ui/Notification.hpp>
 #include <algorithm>
 #include <deque>
 #include <vector>
@@ -8,11 +9,7 @@
 using namespace geode::prelude;
 
 namespace {
-    constexpr size_t WINDOW    = 10;   // pasos de física guardados
-    constexpr int    MAX_SHIFT = 6;    // cuánto se mueve un click (en pasos)
-    constexpr size_t EXTRA     = 15;   // pasos extra que debe sobrevivir una corrección
-    constexpr int    MAX_TRIES = 250;  // límite de variantes por muerte
-    constexpr float  STEP_DT   = 1.f / 240.f;
+    constexpr float STEP_DT = 1.f / 240.f;
 
     using Inputs = std::vector<bool>;
 
@@ -25,12 +22,24 @@ namespace {
     bool g_sim = false;          // simulando variantes
     bool g_diedInSim = false;    // la variante actual murió
     bool g_pending = false;      // hay una muerte retenida
+    bool g_busy = false;         // evita reentradas mientras se corrige
     bool g_allowDeath = false;   // dejar pasar la muerte real
     PlayerObject* g_deadPlayer = nullptr;
     GameObject* g_deadObj = nullptr;
 
-    bool enabled() {
-        return Mod::get()->getSettingValue<bool>("enabled");
+    // Ajustes
+    bool cfgEnabled()   { return Mod::get()->getSettingValue<bool>("enabled"); }
+    bool cfgPractice()  { return Mod::get()->getSettingValue<bool>("practice-only"); }
+    bool cfgNotify()    { return Mod::get()->getSettingValue<bool>("notify"); }
+    size_t cfgWindow()  { return static_cast<size_t>(Mod::get()->getSettingValue<int64_t>("window")); }
+    int cfgShift()      { return static_cast<int>(Mod::get()->getSettingValue<int64_t>("max-shift")); }
+    size_t cfgExtra()   { return static_cast<size_t>(Mod::get()->getSettingValue<int64_t>("extra-steps")); }
+    int cfgTries()      { return static_cast<int>(Mod::get()->getSettingValue<int64_t>("max-tries")); }
+
+    bool active(PlayLayer* pl) {
+        if (!pl || !cfgEnabled()) return false;
+        if (cfgPractice() && !pl->m_isPracticeMode) return false;
+        return true;
     }
 
     bool holding(PlayLayer* pl) {
@@ -46,14 +55,15 @@ namespace {
     std::vector<Inputs> makeVariants(Inputs const& in) {
         std::vector<Inputs> out;
         int n = static_cast<int>(in.size());
+        int maxShift = cfgShift();
 
         std::vector<int> trans; // índices donde cambia el estado del botón
         for (int i = 1; i < n; i++) {
             if (in[i] != in[i - 1]) trans.push_back(i);
         }
 
-        // 1) Mover los 2 últimos cambios entre -MAX_SHIFT y +MAX_SHIFT
-        for (int d = 1; d <= MAX_SHIFT; d++) {
+        // 1) Mover los 2 últimos cambios (click o suelta) hasta +-maxShift
+        for (int d = 1; d <= maxShift; d++) {
             for (int sign : {1, -1}) {
                 int delta = sign * d;
                 int count = 0;
@@ -112,29 +122,30 @@ namespace {
 }
 
 class $modify(AssistBase, GJBaseGameLayer) {
-    void processCommands(float dt) {
+    void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         auto pl = PlayLayer::get();
-        if (pl && enabled() && !g_sim && !g_pending && !pl->m_player1->m_isDead) {
+        if (active(pl) && !g_sim && !g_pending && !g_busy && !pl->m_player1->m_isDead) {
             auto cp = pl->createCheckpoint();
             cp->retain();
             g_ring.push_back({ cp, holding(pl) });
-            if (g_ring.size() > WINDOW) {
+            size_t win = cfgWindow();
+            while (g_ring.size() > win) {
                 g_ring.front().cp->release();
                 g_ring.pop_front();
             }
         }
-        GJBaseGameLayer::processCommands(dt);
+        GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
     }
 };
 
 class $modify(AssistPlayLayer, PlayLayer) {
     void destroyPlayer(PlayerObject* p, GameObject* obj) {
-        if (!enabled() || g_allowDeath || obj == m_anticheatSpike) {
+        if (!active(this) || g_allowDeath || obj == m_anticheatSpike) {
             PlayLayer::destroyPlayer(p, obj);
             return;
         }
         if (g_sim) { g_diedInSim = true; return; }
-        if (g_pending) return;
+        if (g_pending || g_busy) return;
         if (g_ring.size() < 2) {
             PlayLayer::destroyPlayer(p, obj);
             return;
@@ -149,13 +160,21 @@ class $modify(AssistPlayLayer, PlayLayer) {
         PlayLayer::postUpdate(dt);
         if (g_sim || !g_pending) return;
         g_pending = false;
+        g_busy = true;
 
-        if (!tryFix()) {
+        bool fixed = tryFix();
+        if (fixed) {
+            if (cfgNotify()) {
+                Notification::create("Click corregido", NotificationIcon::Success, 0.4f)->show();
+            }
+        } else {
             g_allowDeath = true;
             PlayLayer::destroyPlayer(g_deadPlayer, g_deadObj);
             g_allowDeath = false;
         }
+
         clearRing();
+        g_busy = false;
     }
 
     bool tryFix() {
@@ -169,9 +188,12 @@ class $modify(AssistPlayLayer, PlayLayer) {
         g_sim = true;
         bool fixed = false;
         int tries = 0;
+        int maxTries = cfgTries();
+        size_t extra = cfgExtra();
+
         for (auto& v : makeVariants(in)) {
-            if (++tries > MAX_TRIES) break;
-            if (simulate(this, g_ring.front().cp, v, steps + EXTRA)) {
+            if (++tries > maxTries) break;
+            if (simulate(this, g_ring.front().cp, v, steps + extra)) {
                 simulate(this, g_ring.front().cp, v, steps);   // dejar el juego en el punto de la muerte, ya corregido
                 fixed = true;
                 break;
@@ -184,19 +206,21 @@ class $modify(AssistPlayLayer, PlayLayer) {
     }
 
     void levelComplete() {
-        if (g_sim) return;
+        if (g_sim) return;     // no completar el nivel dentro de una simulación
         PlayLayer::levelComplete();
     }
 
     void resetLevel() {
         clearRing();
         g_pending = false;
+        g_busy = false;
         PlayLayer::resetLevel();
     }
 
     void onQuit() {
         clearRing();
         g_pending = false;
+        g_busy = false;
         PlayLayer::onQuit();
     }
 };
