@@ -1,17 +1,24 @@
 {
-	"geode": "$GEODE_VERSION",
+	"geode": "5.11.2",
 	"gd": {
 		"win": "2.2081",
 		"android": "2.2081",
 		"mac": "2.2081",
 		"ios": "2.2081"
 	},
-	"id": "$MOD_ID",
-	"name": "$MOD_NAME",
-	"version": "$MOD_VERSION",
-	"developer": "$MOD_DEVELOPER",
-	"description": "$MOD_DESCRIPTION",
+	"id": "jailblox263.autocorrect",
+	"name": "Auto Click Fix",
+	"version": "v0.1.0",
+	"developer": "Jailblox263",
+	"description": "Si un click sale mal, intenta corregirlo rebobinando y probando variantes. Si no hay solución, mueres.",
 	"dependencies": {
 		"geode.node-ids": ">=v1.23.3"
+	},
+	"settings": {
+		"enabled": {
+			"type": "bool",
+			"name": "Activado",
+			"default": true
+		}
 	}
 }
